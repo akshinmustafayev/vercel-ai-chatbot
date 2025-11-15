@@ -1,0 +1,59 @@
+version: 0.2
+# The CodeBuild project passes ECR_REPO_URI, APP_RUNNER_SERVICE_ARN, GITHUB_PAT_SECRET_ARN, GITHUB_OWNER, and GITHUB_REPO as environment variables.
+env:
+  # Export the AWS Region from the CodeBuild context
+  variables:
+    AWS_REGION: us-east-1
+  
+phases:
+  install:
+    commands:
+      # Install tools needed for secrets retrieval and API calls
+      - apt-get update -y
+      - apt-get install -y jq curl
+
+  pre_build:
+    commands:
+      # Log into ECR for image pushing
+      - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REPO_URI
+
+  build:
+    commands:
+      - echo Build started on $(date)
+      # Build the application's Docker image
+      - docker build -t $ECR_REPO_URI:$CODEBUILD_RESOLVED_COMMIT_ID .
+      # Tag the image as 'latest' for deployment
+      - docker tag $ECR_REPO_URI:$CODEBUILD_RESOLVED_COMMIT_ID $ECR_REPO_URI:latest
+
+  post_build:
+    commands:
+      - echo Pushing the Docker images to ECR...
+      - docker push $ECR_REPO_URI:$CODEBUILD_RESOLVED_COMMIT_ID
+      - docker push $ECR_REPO_URI:latest
+      
+      - echo Deploying App Runner service with new image...
+      # Trigger App Runner deployment to pull the new 'latest' image
+      - aws apprunner update-service --service-arn $APP_RUNNER_SERVICE_ARN --source-configuration '{"ImageRepository": {"ImageIdentifier": "'"$ECR_REPO_URI"':latest'", "ImageRepositoryType": "ECR"}}'
+      
+      - echo Waiting for App Runner service to be ACTIVE before tagging...
+      - aws apprunner wait service-running --service-arn $APP_RUNNER_SERVICE_ARN
+      
+      - echo Retrieving GitHub PAT from Secrets Manager for tagging...
+      # Retrieve PAT securely
+      - export GITHUB_TOKEN=$(aws secretsmanager get-secret-value --secret-id $GITHUB_PAT_SECRET_ARN --query SecretString --output text)
+      - COMMIT_SHA=$CODEBUILD_RESOLVED_COMMIT_ID
+      - GIT_TAG="deployed-dev"
+
+      - echo Auto-tagging commit $COMMIT_SHA with $GIT_TAG on $GITHUB_OWNER/$GITHUB_REPO...
+      # 1. Delete the existing tag (if it exists)
+      - |
+        curl -s -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
+          "https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPO/git/refs/tags/$GIT_TAG"
+      
+      # 2. Create the new tag reference on the current commit
+      - |
+        curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
+          -d '{"ref": "refs/tags/'$GIT_TAG'", "sha": "'$COMMIT_SHA'"}' \
+          "https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPO/git/refs"
+      
+      - echo Auto-tagging complete.
