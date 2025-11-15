@@ -1,0 +1,5 @@
+openai_api_key				  = "your value"
+next_public_supabase_url      = "value from secrets manager"
+next_public_supabase_anon_key = "value from secrets manager"
+next_public_auth_github           = "false"
+github_token           = "value from secrets manager"

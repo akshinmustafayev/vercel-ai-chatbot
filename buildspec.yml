@@ -20,15 +20,27 @@ phases:
   build:
     commands:
       - echo Build started on $(date)
-      # Build the application's Docker image
-      - docker build -t $ECR_REPO_URI:$CODEBUILD_RESOLVED_COMMIT_ID .
-      # Tag the image as 'latest' for deployment
-      - docker tag $ECR_REPO_URI:$CODEBUILD_RESOLVED_COMMIT_ID $ECR_REPO_URI:latest
-
+      - export OPENAI_KEY=$(aws secretsmanager get-secret-value --secret-id $OPENAI_API_KEY_ARN --query SecretString --output text)
+      - export SUPABASE_URL=$(aws secretsmanager get-secret-value --secret-id $SUPABASE_URL_ARN --query SecretString --output text)
+      - export SUPABASE_ANON_KEY=$(aws secretsmanager get-secret-value --secret-id $SUPABASE_ANON_KEY_ARN --query SecretString --output text)
+      - export AUTH_GITHUB=$(aws secretsmanager get-secret-value --secret-id $PUBLIC_AUTH_GITHUB_ARN --query SecretString --output text)
+      
+      - |
+        docker build \
+        --build-arg OPENAI_API_KEY=$OPENAI_KEY \
+        --build-arg NEXT_PUBLIC_SUPABASE_URL=$SUPABASE_URL \
+        --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY \
+        --build-arg NEXT_PUBLIC_AUTH_GITHUB=$AUTH_GITHUB \
+        -t $ECR_REPO_URI:$CODEBUILD_RESOLVED_COMMIT_ID .
+        
+      - |
+        docker tag $ECR_REPO_URI:$CODEBUILD_RESOLVED_COMMIT_ID $ECR_REPO_URI:latest
+        
   post_build:
     commands:
       - echo Pushing the Docker images to ECR...
-      - docker push $ECR_REPO_URI:$CODEBUILD_RESOLVED_COMMIT_ID
+      # Push the commit-tagged image
+      - docker push $ECR_REPO_URI$CODEBUILD_RESOLVED_COMMIT_ID
       - docker push $ECR_REPO_URI:latest
       
       - echo Deploying App Runner service with new image...
