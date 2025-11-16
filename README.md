@@ -1,5 +1,5 @@
 # Reusable AWS Deployment Pipeline — App Runner + CodePipeline + Supabase
-
+test for auto trigger
 This repository contains a reusable, modular AWS deployment pattern designed to support multiple application projects with minimal changes. It implements:
 
 - **CI/CD with AWS CodePipeline + CodeBuild**
